@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * This file is part of qinpei/hyperf-flysystem-obs.
+ * This file is part of qianxiong/hyperf-flysystem-obs.
  *
  * Replaces the 24-parameter constructor of the upstream Laravel package with a
  * validated, immutable value object.

@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * This file is part of qinpei/hyperf-flysystem-obs.
+ * This file is part of qianxiong/hyperf-flysystem-obs.
  *
  * Ported from mubbi/laravel-flysystem-huawei-obs (MIT) with the following fixes:
  *  - pagination driven by IsTruncated instead of NextMarker (upstream silently

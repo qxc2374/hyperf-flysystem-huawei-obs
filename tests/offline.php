@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Offline verification for qinpei/hyperf-flysystem-obs — no credentials, no network.
+ * Offline verification for qianxiong/hyperf-flysystem-obs — no credentials, no network.
  * Scratch file, deleted after the run.
  */
 

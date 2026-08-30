@@ -1,5 +1,5 @@
 {
-    "name": "qinpei/hyperf-flysystem-obs",
+    "name": "qianxiong/hyperf-flysystem-obs",
     "type": "library",
     "description": "Huawei Cloud OBS adapter for the official hyperf/filesystem component (Flysystem v3).",
     "license": "MIT",
@@ -14,7 +14,7 @@
     ],
     "authors": [
         {
-            "name": "qinpei"
+            "name": "qianxiong"
         }
     ],
     "require": {

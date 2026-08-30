@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * This file is part of qinpei/hyperf-flysystem-obs.
+ * This file is part of qianxiong/hyperf-flysystem-obs.
  */
 
 namespace Hyperf\Flysystem\Obs\Command;
