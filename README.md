@@ -172,8 +172,8 @@ $adapter = $filesystem->getAdapter();
 $adapter->createSignedUrl('path/to/file.txt', 'GET', 600);
 $adapter->createSignedUrl('path/to/file.txt', 'PUT', 600, ['Content-Type' => 'text/plain']);
 
-// 浏览器表单直传签名
-$adapter->createPostSignature('uploads/', ['content-length-range' => [0, 10485760]], 600);
+// 浏览器表单直传签名（第二个参数是表单字段，会写进 POST policy 条件）
+$adapter->createPostSignature('uploads/', ['content-type' => 'text/plain', 'x-obs-acl' => 'public-read'], 600);
 
 // 对象标签
 $adapter->setObjectTags('path/to/file.txt', ['env' => 'prod', 'owner' => 'team-a']);

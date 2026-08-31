@@ -62,7 +62,7 @@ $adapter = HuaweiObsAdapter::fromArray($options);
 
 $documented = [
     'createSignedUrl' => ['path', 'GET', 600],
-    'createPostSignature' => ['uploads/', ['content-length-range' => [0, 10485760]], 600],
+    'createPostSignature' => ['uploads/', ['content-type' => 'text/plain', 'x-obs-acl' => 'public-read'], 600],
     'setObjectTags' => ['path', ['env' => 'prod']],
     'getObjectTags' => ['path'],
     'deleteObjectTags' => ['path'],

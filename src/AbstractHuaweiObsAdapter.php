@@ -107,13 +107,15 @@ abstract class AbstractHuaweiObsAdapter
     /**
      * Create a POST policy signature for direct browser uploads.
      *
-     * @param array<int, array<string, mixed>> $conditions extra post-policy conditions
+     * @param array<string, mixed> $formParams extra form fields that become POST policy
+     *                                         conditions (e.g. ['content-type' => 'text/plain',
+     *                                         'x-obs-acl' => 'public-read'])
      *
      * @return array<string, mixed>
      *
      * @throws UnableToCreatePostSignature
      */
-    public function createPostSignature(string $path, array $conditions = [], ?int $expires = null): array
+    public function createPostSignature(string $path, array $formParams = [], ?int $expires = null): array
     {
         $startTime = microtime(true);
         $expires ??= $this->config->signedUrlExpires;
@@ -127,7 +129,7 @@ abstract class AbstractHuaweiObsAdapter
                 'Bucket' => $this->config->bucket,
                 'Key' => $key,
                 'Expires' => $expires,
-                'Conditions' => $conditions,
+                'FormParams' => $formParams,
             ]));
 
             $this->logOperation('createPostSignature', $path, microtime(true) - $startTime, ['expires' => $expires]);
