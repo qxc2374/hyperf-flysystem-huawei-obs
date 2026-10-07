@@ -22,7 +22,7 @@
         "ext-json": "*",
         "hyperf/filesystem": "^3.1",
         "league/flysystem": "^3.0",
-        "qianxiong/huaweicloud-obs-sdk": "dev-main",
+        "qianxiong/huaweicloud-obs-sdk": "^v1.0",
         "psr/container": "^1.0|^2.0",
         "psr/http-message": "^1.0|^2.0",
         "psr/log": "^1.0|^2.0|^3.0"
