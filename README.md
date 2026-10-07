@@ -158,6 +158,27 @@ $obs = $container->get(FilesystemFactory::class)->get('obs');
 $obs->write('path/to/file.txt', 'contents');
 ```
 
+需要 OBS 专有能力时可以直接注入适配器，本包的 `ConfigProvider` 已经注册好绑定，**不需要**在 `config/autoload/dependencies.php` 里写任何东西：
+
+```php
+use Hyperf\Flysystem\Obs\HuaweiObsAdapter;
+
+class FooController
+{
+    #[Inject]
+    protected HuaweiObsAdapter $obs;
+
+    public function sign()
+    {
+        return $this->obs->createSignedUrl('path/to/file.txt', 'GET', 600);
+    }
+}
+```
+
+解析规则：先看 `file.default` 指向的磁盘，是 OBS 就用它；否则取第一个 `driver` 为 `HuaweiObsAdapterFactory` 的 `file.storage.*`。适配器由 `FilesystemFactory` 构建并按 storage 配置缓存，所以注入拿到的和 `Filesystem` 用的是同一个实例（不会多建一个 `ObsClient`）。两个 OBS 磁盘需要分别注入时，再在 `config/autoload/dependencies.php` 覆盖 `HuaweiObsAdapter::class` 即可。
+
+> `HuaweiObsAdapter` 不能被容器自动装配：它的构造函数需要一个已经配置好 `key` / `secret` 的 `QianXiong\ObsClient`，直接 autowire 会拿空配置建客户端并抛出 `key and secret must be provided`。所以绑定必须来自本包（或你的 `dependencies.php`），不能省。
+
 ### OBS 专有能力
 
 Flysystem v3 的 `Filesystem` 只转发标准契约里的方法，所以签名 URL、表单直传、对象标签、归档取回这些 OBS 专有能力要先拿到底层适配器：

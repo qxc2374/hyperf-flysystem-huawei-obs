@@ -18,6 +18,11 @@ class ConfigProvider
         return [
             'dependencies' => [
                 HuaweiObsAdapterFactory::class => HuaweiObsAdapterFactory::class,
+                // HuaweiObsAdapter cannot be autowired (its ObsClient needs the
+                // configured key/secret), so the package wires it itself. An
+                // application can then #[Inject] the adapter without touching
+                // config/autoload/dependencies.php.
+                HuaweiObsAdapter::class => HuaweiObsAdapterInvoker::class,
             ],
             // hyperf/command is a suggest, not a require.
             'commands' => class_exists(HyperfCommand::class) ? [ObsSelfCheckCommand::class] : [],
