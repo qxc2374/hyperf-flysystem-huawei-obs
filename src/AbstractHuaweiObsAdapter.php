@@ -143,6 +143,8 @@ abstract class AbstractHuaweiObsAdapter
     }
 
     /**
+     * Replace the object's tag set with the given map.
+     *
      * @param array<string, string> $tags
      *
      * @throws UnableToSetObjectTags
@@ -156,13 +158,19 @@ abstract class AbstractHuaweiObsAdapter
 
             $key = $this->getKey($path);
 
+            // OBS takes a tag set as a list of {Key, Value} pairs and this SDK exposes it
+            // as the `Tags` argument (its resource map sends `Tags` as the TagSet XML
+            // node). Passing `TagSet`, or an associative map, makes the client-side
+            // validator abort with "param:Tags is required" before a request is ever sent.
+            $tagSet = $this->toTagSet($tags);
+
             $this->withRetry(fn () => $this->client->setObjectTagging([
                 'Bucket' => $this->config->bucket,
                 'Key' => $key,
-                'TagSet' => $tags,
+                'Tags' => $tagSet,
             ]));
 
-            $this->logOperation('setObjectTags', $path, microtime(true) - $startTime, ['tags_count' => count($tags)]);
+            $this->logOperation('setObjectTags', $path, microtime(true) - $startTime, ['tags_count' => count($tagSet)]);
         } catch (ObsException $e) {
             $this->logError('setObjectTags', $path, $e);
 
@@ -171,7 +179,12 @@ abstract class AbstractHuaweiObsAdapter
     }
 
     /**
-     * @return array<int|string, mixed>
+     * Read the object's tags as a plain map.
+     *
+     * An object that was never tagged comes back as `[]`: OBS answers 404
+     * `NoSuchTagSet` for it, which is not a failure.
+     *
+     * @return array<string, string>
      *
      * @throws UnableToGetObjectTags
      */
@@ -182,16 +195,13 @@ abstract class AbstractHuaweiObsAdapter
         try {
             $this->checkAuthentication();
 
-            $key = $this->getKey($path);
+            // The SDK parses the TagSet XML node into `Tags`, a list of {Key, Value}
+            // pairs: neither a `TagSet` key, nor a map of tag names to values.
+            $tags = $this->fetchObjectTags($this->getKey($path)) ?? [];
 
-            $result = $this->withRetry(fn () => $this->client->getObjectTagging([
-                'Bucket' => $this->config->bucket,
-                'Key' => $key,
-            ]));
+            $this->logOperation('getObjectTags', $path, microtime(true) - $startTime, ['tags_count' => count($tags)]);
 
-            $this->logOperation('getObjectTags', $path, microtime(true) - $startTime);
-
-            return $result['TagSet'] ?? [];
+            return $tags;
         } catch (ObsException $e) {
             $this->logError('getObjectTags', $path, $e);
 
@@ -200,6 +210,20 @@ abstract class AbstractHuaweiObsAdapter
     }
 
     /**
+     * Remove every tag from an object.
+     *
+     * OBS's own DeleteObjectTagging is out of reach through this SDK: its
+     * `deleteObjectTagging` resource map declares no `Key`, so the call would go to
+     * `DELETE /{bucket}?tagging` — it wipes the *bucket* tag set and leaves the object's
+     * tags untouched. Clearing therefore takes the documented OBS route instead: a
+     * server-side self copy with `x-obs-tagging-directive: REPLACE` and an empty
+     * `x-obs-tagging` header, replaying the content headers, user metadata and ACL read
+     * beforehand so that nothing but the tags changes.
+     *
+     * Caveats of that copy: the object gets a fresh LastModified (and an extra version on
+     * a versioned bucket), it has to stay under the 5 GiB copy limit, and an object still
+     * in OBS Archive must be restored before it can be rewritten.
+     *
      * @throws UnableToDeleteObjectTags
      */
     public function deleteObjectTags(string $path): void
@@ -211,10 +235,56 @@ abstract class AbstractHuaweiObsAdapter
 
             $key = $this->getKey($path);
 
-            $this->withRetry(fn () => $this->client->deleteObjectTagging([
+            if (($this->fetchObjectTags($key) ?? []) === []) {
+                // Untagged already: a copy would only bump LastModified.
+                $this->logOperation('deleteObjectTags', $path, microtime(true) - $startTime, ['skipped' => 'no tags']);
+
+                return;
+            }
+
+            $metadata = $this->normaliseResult($this->withRetry(fn () => $this->client->getObjectMetadata([
                 'Bucket' => $this->config->bucket,
                 'Key' => $key,
-            ]));
+            ])));
+
+            $acl = $this->normaliseResult($this->withRetry(fn () => $this->client->getObjectAcl([
+                'Bucket' => $this->config->bucket,
+                'Key' => $key,
+            ])));
+
+            $options = [
+                'Bucket' => $this->config->bucket,
+                'Key' => $key,
+                'CopySource' => $this->config->bucket . '/' . $key,
+                'MetadataDirective' => 'REPLACE',
+                'TaggingDirective' => 'REPLACE',
+                'Tagging' => '',
+            ];
+
+            // StorageClass is deliberately left out: omitting it keeps the source class,
+            // while replaying it would move WARM/COLD objects back to STANDARD.
+            foreach (['ContentType', 'CacheControl', 'ContentDisposition', 'ContentEncoding', 'ContentLanguage', 'Expires', 'WebsiteRedirectLocation', 'Metadata'] as $header) {
+                if (! empty($metadata[$header])) {
+                    $options[$header] = $metadata[$header];
+                }
+            }
+
+            $this->withRetry(fn () => $this->client->copyObject($options));
+
+            // A copy always lands private, so put the ACL that was read back in place.
+            if (! empty($acl['Grants'])) {
+                $restore = [
+                    'Bucket' => $this->config->bucket,
+                    'Key' => $key,
+                    'Grants' => $acl['Grants'],
+                ];
+
+                if (! empty($acl['Owner'])) {
+                    $restore['Owner'] = $acl['Owner'];
+                }
+
+                $this->withRetry(fn () => $this->client->setObjectAcl($restore));
+            }
 
             $this->logOperation('deleteObjectTags', $path, microtime(true) - $startTime);
         } catch (ObsException $e) {
@@ -222,6 +292,59 @@ abstract class AbstractHuaweiObsAdapter
 
             throw UnableToDeleteObjectTags::forLocation($path, $e);
         }
+    }
+
+    /**
+     * OBS wants a tag set as a list of {Key, Value} pairs; callers pass a plain map.
+     *
+     * @param array<string, string> $tags
+     *
+     * @return array<int, array{Key: string, Value: string}>
+     */
+    protected function toTagSet(array $tags): array
+    {
+        $tagSet = [];
+
+        foreach ($tags as $key => $value) {
+            $tagSet[] = ['Key' => (string) $key, 'Value' => (string) $value];
+        }
+
+        return $tagSet;
+    }
+
+    /**
+     * Read an object's tag set as a plain map.
+     *
+     * @return null|array<string, string> null when the object was never tagged: OBS
+     *                                    answers NoSuchTagSet with a 404 instead of an
+     *                                    empty tag set.
+     */
+    protected function fetchObjectTags(string $key): ?array
+    {
+        try {
+            $result = $this->withRetry(fn () => $this->client->getObjectTagging([
+                'Bucket' => $this->config->bucket,
+                'Key' => $key,
+            ]));
+        } catch (ObsException $e) {
+            if ($this->extractErrorCode($e) === 'NoSuchTagSet') {
+                return null;
+            }
+
+            throw $e;
+        }
+
+        $tags = [];
+
+        foreach ($this->normaliseResult($result)['Tags'] ?? [] as $tag) {
+            $tag = $this->normaliseResult($tag);
+
+            if (isset($tag['Key'])) {
+                $tags[(string) $tag['Key']] = (string) ($tag['Value'] ?? '');
+            }
+        }
+
+        return $tags;
     }
 
     /**
@@ -483,7 +606,9 @@ abstract class AbstractHuaweiObsAdapter
     {
         $errorCode = $this->extractErrorCode($exception);
 
-        if (in_array($errorCode, ['NoSuchKey', 'NoSuchResource', 'NoSuchVersion'], true)) {
+        // NoSuchTagSet (an object that was never tagged) belongs here as well: it is a
+        // definitive answer, so retrying it only burns round trips.
+        if (in_array($errorCode, ['NoSuchKey', 'NoSuchResource', 'NoSuchVersion', 'NoSuchTagSet'], true)) {
             return true;
         }
 

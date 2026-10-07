@@ -198,8 +198,8 @@ $adapter->createPostSignature('uploads/', ['content-type' => 'text/plain', 'x-ob
 
 // 对象标签
 $adapter->setObjectTags('path/to/file.txt', ['env' => 'prod', 'owner' => 'team-a']);
-$adapter->getObjectTags('path/to/file.txt');
-$adapter->deleteObjectTags('path/to/file.txt');
+$adapter->getObjectTags('path/to/file.txt');     // ['env' => 'prod', 'owner' => 'team-a']；没打过标签时是 []
+$adapter->deleteObjectTags('path/to/file.txt');  // 清空该对象的全部标签
 
 // 归档存储取回，保持可读 3 天
 $adapter->restoreObject('archive/old.zip', 3);
@@ -211,6 +211,9 @@ $adapter->refreshCredentials($newKey, $newSecret, $newToken);
 $adapter->getClient();   // QianXiong\ObsClient
 $adapter->getConfig();   // Hyperf\Flysystem\Obs\ObsConfig
 ```
+
+> 标签 API 的两个坑：`setObjectTags()` 收普通映射（`['env' => 'prod']`），适配器负责转成 OBS 的 `TagSet` 列表；`getObjectTags()` 对从未打过标签的对象返回 `[]`——OBS 这时回的是 404 `NoSuchTagSet`，不是空标签集。
+> `deleteObjectTags()` 走 OBS 文档里的「服务端自拷贝 + `x-obs-tagging-directive: REPLACE` + 空 `x-obs-tagging`」路线：本包依赖的 SDK 中 `deleteObjectTagging` 的资源表没有声明 `Key`，直接调用会发成 `DELETE /{bucket}?tagging`，删掉的是 **bucket** 标签、对象标签毫发无损。自拷贝会写入新的 `LastModified`（开了多版本会多一个版本）、要求对象在 5 GiB 以内、归档层对象需先取回；拷贝后适配器会用读到的 `Owner` + `Grants` 把 ACL 原样还原（拷贝本身只会落成 private）。
 
 这些方法替代了上游 Laravel 包用 11 个 `FilesystemAdapter::macro()` 提供的能力。
 
